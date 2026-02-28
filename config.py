@@ -14,6 +14,9 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise RuntimeError("Set BOT_TOKEN in .env")
 
+# Кот-помогатор: Мурлок (мурлычет + «закрывает» холодильник)
+BOT_NAME = "Мурлок"
+
 DB_PATH = Path(__file__).parent / "bot_data.db"
 
 # Для теста: 1 минута = 1 секунда (7/15/20 мин → 7/15/20 сек, 10 мин → 10 сек)

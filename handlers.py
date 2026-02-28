@@ -1,16 +1,15 @@
 """All bot handlers: start, menu, meal flow, snack, progress, settings."""
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time as dt_time
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config import TEST_FAST_TIMERS
+from config import TEST_FAST_TIMERS, BOT_NAME
 from database import (
     init_db,
     upsert_user,
     get_settings,
-    set_no_eat_after,
     add_meal,
     add_impulse,
     get_meals_today,
@@ -28,8 +27,8 @@ from keyboards import (
     MEAL_FINISH_MARKUP,
     STOPPED_80_MARKUP,
     SNACK_AFTER_MARKUP,
-    MEAL_TYPE_MARKUP,
-    SETTINGS_MARKUP,
+    MEAL_TYPE_MAIN_MARKUP,
+    RECORD_SNACK_MARKUP,
     BACK_TO_MENU_MARKUP,
 )
 
@@ -45,8 +44,10 @@ PENDING_MEAL: dict[int, tuple[str | None, bool]] = {}
 USER_IN_MEAL: set[int] = set()
 # user_id -> datetime начала приёма (для секундомера)
 USER_MEAL_START: dict[int, datetime] = {}
-# После "Закончил приём пищи": user_id -> {start_at, duration_seconds} до сохранения приёма
+# После "Закончил приём пищи": user_id -> {start_at, duration_seconds, meal_type} до сохранения приёма
 MEAL_SESSION: dict[int, dict] = {}
+# Тип приёма при «Собираюсь поесть» (выбирается до старта секундомера)
+USER_MEAL_START_TYPE: dict[int, str] = {}
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -56,7 +57,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     upsert_user(user.id, user.username, user.first_name)
     USER_STATE[user.id] = ""
     await update.message.reply_text(
-        "Привет! Я помогу тебе есть меньше и осознаннее.\n\n"
+        f"Мяу! Я {BOT_NAME}, кот-помогатор. Помогу тебе есть меньше и осознаннее.\n\n"
         "• Перед едой — короткий чек-лист, потом секундомер; нажми «Закончила приём пищи», когда закончишь.\n"
         "• Хочется перекусить — подождём 10 минут и спрошу снова.\n"
         "• Можно вести дневник приёмов и смотреть прогресс.\n\n"
@@ -71,8 +72,27 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     PENDING_MEAL.pop(user_id, None)
     USER_IN_MEAL.discard(user_id)
     USER_MEAL_START.pop(user_id, None)
+    USER_MEAL_START_TYPE.pop(user_id, None)
     MEAL_SESSION.pop(user_id, None)
-    await update.message.reply_text("Главное меню. Что делаем?", reply_markup=MAIN_MARKUP)
+    await update.message.reply_text(f"Мяу! Главное меню. Что делаем? 👇", reply_markup=MAIN_MARKUP)
+
+
+def _is_after_boundary(user_id: int) -> tuple[bool, str]:
+    """Проверяет, прошла ли граница «не есть после». Возвращает (да, граница_строка)."""
+    s = get_settings(user_id)
+    boundary = s.get("no_eat_after") or "21:00"
+    try:
+        parts = boundary.replace(".", ":").strip().split(":")
+        h, m = int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
+        boundary_time = dt_time(h, m, 0)
+    except (ValueError, IndexError):
+        return False, boundary
+    # Время сервера (поставь TZ на сервере под свой часовой пояс, иначе считается по UTC)
+    now = datetime.now().time()
+    # Сравниваем: если граница 21:00, то 20:59 ещё можно, 21:00 уже нет
+    now_t = now.hour * 60 + now.minute
+    bound_t = boundary_time.hour * 60 + boundary_time.minute
+    return now_t >= bound_t, boundary
 
 
 # ----- Meal flow: before meal -> checklist -> 20 min timer -----
@@ -83,6 +103,13 @@ async def meal_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if update.message.text != "🍽 Собираюсь поесть":
         return
     user_id = update.effective_user.id
+    after, boundary = _is_after_boundary(user_id)
+    if after:
+        await update.message.reply_text(
+            f"Мяу! Сейчас уже после {boundary}. {BOT_NAME} говорит: не есть после {boundary}. Лучше выпей воды или подожди до завтра.",
+            reply_markup=MAIN_MARKUP,
+        )
+        return
     USER_STATE[user_id] = "water"
     await update.message.reply_text(
         "Перед едой — три шага.\n\n1️⃣ Выпила стакан воды?",
@@ -110,10 +137,20 @@ async def meal_checklist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return
     if state == "plate":
+        USER_STATE[user_id] = "meal_choose_type"
+        await update.message.reply_text(
+            "Какой приём? Выбери: завтрак, обед или ужин.",
+            reply_markup=MEAL_TYPE_MAIN_MARKUP,
+        )
+        return
+    if state == "meal_choose_type":
+        meal_type = MEAL_BUTTON_TO_MAIN_TYPE.get(text)
+        if not meal_type:
+            return
         USER_STATE[user_id] = ""
+        USER_MEAL_START_TYPE[user_id] = meal_type
         USER_IN_MEAL.add(user_id)
         USER_MEAL_START[user_id] = datetime.utcnow()
-        # Напоминания попить воды во время еды (1-я и 2-я)
         job_queue = context.application.job_queue
         t1 = timedelta(seconds=10) if TEST_FAST_TIMERS else timedelta(minutes=5)
         t2 = timedelta(seconds=20) if TEST_FAST_TIMERS else timedelta(minutes=10)
@@ -151,11 +188,12 @@ async def _water_reminder_during_meal(context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def meal_finish(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Пользователь нажал «Закончил приём пищи»."""
+    """Пользователь нажал «Закончила приём пищи»."""
     user_id = update.effective_user.id
     if user_id not in USER_IN_MEAL:
         return
     start_dt = USER_MEAL_START.pop(user_id, None)
+    meal_type = USER_MEAL_START_TYPE.pop(user_id, "meal")
     USER_IN_MEAL.discard(user_id)
     if not start_dt:
         await update.message.reply_text("Ок.", reply_markup=MAIN_MARKUP)
@@ -166,6 +204,7 @@ async def meal_finish(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     MEAL_SESSION[user_id] = {
         "start_at": start_dt.isoformat(),
         "duration_seconds": duration_seconds,
+        "meal_type": meal_type,
     }
     mins = duration_seconds // 60
     secs = duration_seconds % 60
@@ -181,6 +220,7 @@ async def meal_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user_id = update.effective_user.id
     USER_IN_MEAL.discard(user_id)
     USER_MEAL_START.pop(user_id, None)
+    USER_MEAL_START_TYPE.pop(user_id, None)
     await update.message.reply_text("Приём отменён.", reply_markup=MAIN_MARKUP)
 
 
@@ -188,23 +228,25 @@ async def _maybe_meal_80_response(update: Update, context: ContextTypes.DEFAULT_
     user_id = update.effective_user.id
     if user_id not in USER_AWAITING_80:
         return False
+    session = MEAL_SESSION.get(user_id)
+    meal_type = session.get("meal_type", "meal") if session else "meal"
     text = (update.message.text or "").strip()
     if "Да, вышла" in text or "вышла" in text.lower():
         USER_AWAITING_80.discard(user_id)
-        PENDING_MEAL[user_id] = (None, True)  # тип выберет потом, stopped_at_80=True
-        USER_STATE[user_id] = "log_meal_type_80"
+        PENDING_MEAL[user_id] = (meal_type, True)
+        USER_STATE[user_id] = "log_meal_calories"
         await update.message.reply_text(
-            "Супер! Остановилась на 80%. Укажи тип приёма — записываю.",
-            reply_markup=MEAL_TYPE_MARKUP,
+            "Супер! Остановилась на 80%. Примерные ккалории? (напиши число)",
+            reply_markup=BACK_TO_MENU_MARKUP,
         )
         return True
     if "доела" in text.lower() or "Нет, доела" in text:
         USER_AWAITING_80.discard(user_id)
-        PENDING_MEAL[user_id] = (None, False)
-        USER_STATE[user_id] = "log_meal_type_80"
+        PENDING_MEAL[user_id] = (meal_type, False)
+        USER_STATE[user_id] = "log_meal_calories"
         await update.message.reply_text(
-            "Укажи тип приёма — записываю.",
-            reply_markup=MEAL_TYPE_MARKUP,
+            "Примерные ккалории? (напиши число)",
+            reply_markup=BACK_TO_MENU_MARKUP,
         )
         return True
     return False
@@ -218,6 +260,13 @@ async def snack_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if update.message.text != "🍪 Хочу перекусить":
         return
     user_id = update.effective_user.id
+    after, boundary = _is_after_boundary(user_id)
+    if after:
+        await update.message.reply_text(
+            f"Мяу! Уже после {boundary}. {BOT_NAME} говорит: лучше выпей воды.",
+            reply_markup=MAIN_MARKUP,
+        )
+        return
     USER_AWAITING_SNACK.add(user_id)
     job_queue = context.application.job_queue
     t10 = timedelta(seconds=10) if TEST_FAST_TIMERS else timedelta(minutes=10)
@@ -259,13 +308,19 @@ async def snack_after(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if "перекусила" in text.lower() or "Уже перекусила" in text:
         USER_AWAITING_SNACK.discard(user_id)
         add_impulse(user_id, waited_10_min=False)
-        await update.message.reply_text("Ок. В следующий раз попробуй снова подождать 10 минут.", reply_markup=MAIN_MARKUP)
+        PENDING_MEAL[user_id] = ("snack", False)
+        USER_STATE[user_id] = "log_meal_calories"
+        await update.message.reply_text(
+            "Примерные ккалории перекуса? (напиши число)",
+            reply_markup=BACK_TO_MENU_MARKUP,
+        )
         return
     if "Да, хочется" in text or "хочется" in text.lower():
         USER_AWAITING_SNACK.discard(user_id)
+        USER_STATE[user_id] = "snack_will_log"
         await update.message.reply_text(
-            "Ок, тогда перекуси. Не забудь записать приём с ккалориями в меню.",
-            reply_markup=MAIN_MARKUP,
+            "Ок, тогда перекуси. Когда закончишь — нажми «Записать перекус».",
+            reply_markup=RECORD_SNACK_MARKUP,
         )
         return
     # Любой другой ответ — выходим из ожидания
@@ -273,39 +328,23 @@ async def snack_after(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text("Выбери действие в меню.", reply_markup=MAIN_MARKUP)
 
 
-# ----- Log meal (type) -----
-MEAL_BUTTON_TO_TYPE = {
+# Тип приёма: только завтрак, обед, ужин (для «Собираюсь поесть»)
+MEAL_BUTTON_TO_MAIN_TYPE = {
     "🌅 Завтрак": "breakfast",
     "☀️ Обед": "lunch",
     "🌙 Ужин": "dinner",
-    "🍪 Перекус": "snack",
 }
 
 
-async def meal_log_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message.text != "📝 Записать приём":
-        return
-    USER_STATE[update.effective_user.id] = "log_meal_type"
-    await update.message.reply_text("Какой приём пищи записать?", reply_markup=MEAL_TYPE_MARKUP)
-
-
-async def meal_log_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def record_snack_ask_calories(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """«Записать перекус» — спрашиваем ккалории и сохраняем как snack."""
     user_id = update.effective_user.id
-    state = USER_STATE.get(user_id)
-    if state not in ("log_meal_type", "log_meal_type_80"):
+    if USER_STATE.get(user_id) != "snack_will_log":
         return
-    text = (update.message.text or "").strip()
-    meal_type = MEAL_BUTTON_TO_TYPE.get(text)
-    if not meal_type:
-        return
-    if state == "log_meal_type_80" and user_id in PENDING_MEAL:
-        _, stopped_80 = PENDING_MEAL[user_id]
-        PENDING_MEAL[user_id] = (meal_type, stopped_80)
-    else:
-        PENDING_MEAL[user_id] = (meal_type, state == "log_meal_type_80")
+    PENDING_MEAL[user_id] = ("snack", False)
     USER_STATE[user_id] = "log_meal_calories"
     await update.message.reply_text(
-        f"Тип: {text}. Примерные ккалории? (напиши число)",
+        "Примерные ккалории перекуса? (напиши число)",
         reply_markup=BACK_TO_MENU_MARKUP,
     )
 
@@ -346,7 +385,7 @@ async def meal_log_calories_input(update: Update, context: ContextTypes.DEFAULT_
     await update.message.reply_text(msg, reply_markup=MAIN_MARKUP)
 
 
-# ----- Progress -----
+# ----- Progress (граница 21:00 только в get_settings, настройки убраны) -----
 async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.text != "📊 Мой прогресс":
         return
@@ -383,59 +422,6 @@ async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         lines.append("")
         lines.append("По типам: " + ", ".join(f"{t}: {c}" for t, c in sorted(by_type.items())))
     await update.message.reply_text("\n".join(lines), reply_markup=MAIN_MARKUP)
-
-
-# ----- Settings -----
-USER_SETTINGS_STATE: dict[int, str] = {}
-
-
-async def settings_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message.text != "⚙️ Настройки":
-        return
-    user_id = update.effective_user.id
-    s = get_settings(user_id)
-    no = s.get("no_eat_after") or "не задано"
-    USER_STATE[user_id] = "settings"
-    await update.message.reply_text(
-        f"Настройки:\n\n🕐 Не есть после: {no}\n\nВыбери пункт или напиши время в формате ЧЧ:ММ (например 22:00).",
-        reply_markup=SETTINGS_MARKUP,
-    )
-
-
-async def settings_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id
-    if USER_STATE.get(user_id) != "settings":
-        return
-    text = (update.message.text or "").strip()
-    if text == "◀️ В меню":
-        USER_STATE[user_id] = ""
-        await update.message.reply_text("Меню.", reply_markup=MAIN_MARKUP)
-        return
-    if "Граница" in text:
-        await update.message.reply_text("Напиши время в формате ЧЧ:ММ (например 22:00) или «выкл» чтобы отключить.")
-        USER_SETTINGS_STATE[user_id] = "no_eat_after"
-        return
-    if USER_SETTINGS_STATE.get(user_id) == "no_eat_after":
-        if text.lower() in ("выкл", "off", "нет"):
-            set_no_eat_after(user_id, None)
-            await update.message.reply_text("Граница «не есть после» отключена.", reply_markup=SETTINGS_MARKUP)
-        else:
-            # Simple HH:MM check
-            try:
-                parts = text.replace(".", ":").split(":")
-                h, m = int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
-                if 0 <= h <= 23 and 0 <= m <= 59:
-                    time_str = f"{h:02d}:{m:02d}"
-                    set_no_eat_after(user_id, time_str)
-                    await update.message.reply_text(f"Граница установлена: не есть после {time_str}.", reply_markup=SETTINGS_MARKUP)
-                else:
-                    await update.message.reply_text("Неверный формат. Напиши ЧЧ:ММ, например 22:00.")
-            except (ValueError, IndexError):
-                await update.message.reply_text("Напиши время в формате ЧЧ:ММ, например 22:00.")
-        USER_SETTINGS_STATE[user_id] = ""
-        return
-    USER_STATE[user_id] = ""
-    await update.message.reply_text("Меню.", reply_markup=MAIN_MARKUP)
 
 
 def is_back_to_menu(update: Update) -> bool:

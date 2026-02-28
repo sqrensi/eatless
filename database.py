@@ -94,9 +94,9 @@ def get_settings(user_id: int) -> dict:
             (user_id,),
         ).fetchone()
     if not row:
-        return {"no_eat_after": None, "remind_boundary_minutes": 30, "daily_remind_time": None, "daily_calorie_limit": 1700}
+        return {"no_eat_after": "21:00", "remind_boundary_minutes": 30, "daily_remind_time": None, "daily_calorie_limit": 1700}
     return {
-        "no_eat_after": row["no_eat_after"],
+        "no_eat_after": row["no_eat_after"] if row["no_eat_after"] is not None else "21:00",
         "remind_boundary_minutes": row["remind_boundary_minutes"] or 30,
         "daily_remind_time": row["daily_remind_time"],
         "daily_calorie_limit": row["daily_calorie_limit"] if row["daily_calorie_limit"] is not None else 1700,

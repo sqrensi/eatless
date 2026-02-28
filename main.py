@@ -19,14 +19,11 @@ from handlers import (
     meal_checklist,
     meal_finish,
     meal_cancel,
-    meal_log_start,
-    meal_log_save,
     meal_log_calories_input,
+    record_snack_ask_calories,
     snack_start,
     snack_after,
     progress,
-    settings_start,
-    settings_input,
     is_back_to_menu,
     _maybe_meal_80_response,
     USER_STATE,
@@ -71,19 +68,17 @@ async def message_router(update: Update, context) -> None:
         return
 
     state = USER_STATE.get(user_id, "")
-    if state in ("log_meal_type", "log_meal_type_80"):
-        await meal_log_save(update, context)
-        return
     if state == "log_meal_calories":
         await meal_log_calories_input(update, context)
         return
-
-    if state in ("water", "hunger", "plate"):
-        await meal_checklist(update, context)
+    if state == "snack_will_log":
+        if "Записать перекус" in text:
+            await record_snack_ask_calories(update, context)
+            return
         return
 
-    if state == "settings":
-        await settings_input(update, context)
+    if state in ("water", "hunger", "plate", "meal_choose_type"):
+        await meal_checklist(update, context)
         return
 
     if text == "🍽 Собираюсь поесть":
@@ -92,14 +87,8 @@ async def message_router(update: Update, context) -> None:
     if text == "🍪 Хочу перекусить":
         await snack_start(update, context)
         return
-    if text == "📝 Записать приём":
-        await meal_log_start(update, context)
-        return
     if text == "📊 Мой прогресс":
         await progress(update, context)
-        return
-    if text == "⚙️ Настройки":
-        await settings_start(update, context)
         return
 
     await main_menu(update, context)

@@ -4,9 +4,7 @@ from telegram import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, 
 MAIN_KEYS = [
     [KeyboardButton("🍽 Собираюсь поесть")],
     [KeyboardButton("🍪 Хочу перекусить")],
-    [KeyboardButton("📝 Записать приём")],
     [KeyboardButton("📊 Мой прогресс")],
-    [KeyboardButton("⚙️ Настройки")],
 ]
 MAIN_MARKUP = ReplyKeyboardMarkup(MAIN_KEYS, resize_keyboard=True)
 
@@ -44,19 +42,19 @@ SNACK_AFTER_KEYS = [
 ]
 SNACK_AFTER_MARKUP = ReplyKeyboardMarkup(SNACK_AFTER_KEYS, resize_keyboard=True)
 
-# Meal type for logging
-MEAL_TYPE_KEYS = [
+# Тип приёма только для «Собираюсь поесть» (завтрак, обед, ужин)
+MEAL_TYPE_MAIN_KEYS = [
     [KeyboardButton("🌅 Завтрак"), KeyboardButton("☀️ Обед")],
-    [KeyboardButton("🌙 Ужин"), KeyboardButton("🍪 Перекус")],
+    [KeyboardButton("🌙 Ужин")],
 ]
-MEAL_TYPE_MARKUP = ReplyKeyboardMarkup(MEAL_TYPE_KEYS, resize_keyboard=True)
+MEAL_TYPE_MAIN_MARKUP = ReplyKeyboardMarkup(MEAL_TYPE_MAIN_KEYS, resize_keyboard=True)
 
-# Settings
-SETTINGS_KEYS = [
-    [KeyboardButton("🕐 Граница «не есть после»")],
+# После «Да, хочется» — записать перекус
+RECORD_SNACK_KEYS = [
+    [KeyboardButton("📝 Записать перекус")],
     [KeyboardButton("◀️ В меню")],
 ]
-SETTINGS_MARKUP = ReplyKeyboardMarkup(SETTINGS_KEYS, resize_keyboard=True)
+RECORD_SNACK_MARKUP = ReplyKeyboardMarkup(RECORD_SNACK_KEYS, resize_keyboard=True)
 
 BACK_TO_MENU_KEYS = [[KeyboardButton("◀️ В меню")]]
 BACK_TO_MENU_MARKUP = ReplyKeyboardMarkup(BACK_TO_MENU_KEYS, resize_keyboard=True)
