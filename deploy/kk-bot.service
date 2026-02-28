@@ -1,0 +1,24 @@
+# Юнит systemd для бота «Меньше есть»
+# Установка:
+#   sudo cp deploy/kk-bot.service /etc/systemd/system/
+#   sudo nano /etc/systemd/system/kk-bot.service  # поправь пути и пользователя
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable kk-bot
+#   sudo systemctl start kk-bot
+# Просмотр логов: sudo journalctl -u kk-bot -f
+
+[Unit]
+Description=Telegram bot «Меньше есть»
+After=network.target
+
+[Service]
+Type=simple
+User=kk
+Group=kk
+WorkingDirectory=/home/kk/bot
+ExecStart=/home/kk/bot/.venv/bin/python main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
