@@ -172,6 +172,16 @@ def get_meals_today(user_id: int) -> list:
     return [dict(r) for r in rows]
 
 
+def get_all_meals(user_id: int) -> list:
+    """Все приёмы пищи и перекусы пользователя (для отчёта)."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT meal_type, at, stopped_at_80, calories, start_at, duration_seconds FROM meals WHERE user_id = ? ORDER BY at",
+            (user_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_total_eating_time_today(user_id: int) -> int:
     """Сумма длительностей приёмов пищи за сегодня, в секундах."""
     with get_conn() as conn:

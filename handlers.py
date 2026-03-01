@@ -17,6 +17,7 @@ from database import (
     add_impulse,
     add_water,
     get_meals_today,
+    get_all_meals,
     get_calories_today,
     get_total_eating_time_today,
     get_streak,
@@ -603,4 +604,57 @@ async def backup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_document(document=f, filename=DB_PATH.name)
     except Exception as e:
         logger.exception("backup send failed")
+        await update.message.reply_text(f"Ошибка: {e}")
+
+
+def _format_meals_report(user_id: int) -> str:
+    """Формирует текст отчёта: все приёмы и перекусы пользователя."""
+    meals = get_all_meals(user_id)
+    if not meals:
+        return f"Пользователь {user_id}: записей о приёмах пищи нет."
+    main_ru = {"breakfast": "Завтрак", "lunch": "Обед", "dinner": "Ужин"}
+    lines = [f"📋 Приёмы пищи пользователя {user_id}", ""]
+    main_meals = []
+    snacks = []
+    for m in meals:
+        at = m["at"][:16].replace("T", " ") if m["at"] else "—"
+        kcal = m["calories"] or 0
+        dur = m["duration_seconds"]
+        row = f"  {at}  |  {kcal} ккал" + (f"  |  {dur // 60} мин" if dur else "")
+        if m["meal_type"] == "snack":
+            snacks.append(row)
+        else:
+            main_meals.append((main_ru.get(m["meal_type"], m["meal_type"]), row))
+    if main_meals:
+        lines.append("Основные приёмы:")
+        for name, row in main_meals:
+            lines.append(f"  {name}: {row}")
+        lines.append("")
+    if snacks:
+        lines.append("Перекусы:")
+        for row in snacks:
+            lines.append(row)
+    total_kcal = sum(m["calories"] or 0 for m in meals)
+    lines.append("")
+    lines.append(f"Всего записей: {len(meals)}, сумма ккал: {total_kcal}")
+    return "\n".join(lines)
+
+
+async def report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /report [user_id]: отчёт по приёмам пищи. Только для BACKUP_USER_ID."""
+    if not update.effective_user:
+        return
+    if BACKUP_USER_ID is None or update.effective_user.id != BACKUP_USER_ID:
+        await update.message.reply_text("Недоступно.")
+        return
+    user_id_str = (context.args or []) and context.args[0]
+    if not user_id_str or not user_id_str.isdigit():
+        await update.message.reply_text("Использование: /report USER_ID\nПример: /report 1180871036")
+        return
+    user_id = int(user_id_str)
+    try:
+        text = _format_meals_report(user_id)
+        await update.message.reply_text(text)
+    except Exception as e:
+        logger.exception("report failed")
         await update.message.reply_text(f"Ошибка: {e}")
