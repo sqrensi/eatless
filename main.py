@@ -1,6 +1,7 @@
 """Telegram bot: eat less, mindful eating."""
 import asyncio
 import logging
+from datetime import time as dt_time
 
 from telegram import Update
 from telegram.ext import (
@@ -22,8 +23,13 @@ from handlers import (
     meal_log_calories_input,
     record_snack_ask_calories,
     snack_start,
+    snack_can_wait_answer,
     snack_after,
+    water_start,
+    water_ml_input,
     progress,
+    reminder_job,
+    water_reminder_job,
     is_back_to_menu,
     _maybe_meal_80_response,
     USER_STATE,
@@ -76,8 +82,14 @@ async def message_router(update: Update, context) -> None:
             await record_snack_ask_calories(update, context)
             return
         return
+    if state == "snack_can_wait":
+        await snack_can_wait_answer(update, context)
+        return
+    if state == "water_ml":
+        await water_ml_input(update, context)
+        return
 
-    if state in ("water", "hunger", "plate", "meal_choose_type"):
+    if state == "meal_choose_type":
         await meal_checklist(update, context)
         return
 
@@ -86,6 +98,9 @@ async def message_router(update: Update, context) -> None:
         return
     if text == "🍪 Хочу перекусить":
         await snack_start(update, context)
+        return
+    if text == "💧 Записать воду":
+        await water_start(update, context)
         return
     if text == "📊 Мой прогресс":
         await progress(update, context)
@@ -103,6 +118,14 @@ def main() -> None:
 
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
+
+    if app.job_queue:
+        # «Ты сейчас не ешь?» — чаще в течение дня
+        for hour in (10, 12, 15, 18, 20):
+            app.job_queue.run_daily(reminder_job, time=dt_time(hour=hour, minute=0))
+        # «Попей воды»
+        for hour in (9, 11, 14, 17, 19):
+            app.job_queue.run_daily(water_reminder_job, time=dt_time(hour=hour, minute=0))
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", start))

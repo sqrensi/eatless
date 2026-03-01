@@ -23,9 +23,16 @@ def init_db():
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
+                chat_id INTEGER,
                 username TEXT,
                 name TEXT,
                 created_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS water (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                at TEXT NOT NULL,
+                ml INTEGER NOT NULL
             );
             CREATE TABLE IF NOT EXISTS settings (
                 user_id INTEGER PRIMARY KEY REFERENCES users(user_id),
@@ -67,6 +74,7 @@ def init_db():
             "ALTER TABLE meals ADD COLUMN calories INTEGER",
             "ALTER TABLE meals ADD COLUMN start_at TEXT",
             "ALTER TABLE meals ADD COLUMN duration_seconds INTEGER",
+            "ALTER TABLE users ADD COLUMN chat_id INTEGER",
         ]:
             try:
                 conn.execute(sql)
@@ -74,13 +82,20 @@ def init_db():
                 pass
 
 
-def upsert_user(user_id: int, username: str | None, name: str | None):
+def upsert_user(user_id: int, username: str | None, name: str | None, chat_id: int | None = None):
     with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO users (user_id, username, name, created_at) VALUES (?, ?, ?, ?)"
-            " ON CONFLICT(user_id) DO UPDATE SET username=?, name=?",
-            (user_id, username or "", name or "", datetime.utcnow().isoformat(), username or "", name or ""),
-        )
+        if chat_id is not None:
+            conn.execute(
+                "INSERT INTO users (user_id, username, name, created_at, chat_id) VALUES (?, ?, ?, ?, ?)"
+                " ON CONFLICT(user_id) DO UPDATE SET username=?, name=?, chat_id=?",
+                (user_id, username or "", name or "", datetime.utcnow().isoformat(), chat_id, username or "", name or "", chat_id),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO users (user_id, username, name, created_at) VALUES (?, ?, ?, ?)"
+                " ON CONFLICT(user_id) DO UPDATE SET username=?, name=?",
+                (user_id, username or "", name or "", datetime.utcnow().isoformat(), username or "", name or ""),
+            )
         conn.execute(
             "INSERT OR IGNORE INTO settings (user_id) VALUES (?)",
             (user_id,),
@@ -237,3 +252,42 @@ def get_impulses_waited_today(user_id: int) -> int:
             (user_id,),
         ).fetchone()[0]
     return n
+
+
+def get_last_meal_time(user_id: int) -> datetime | None:
+    """Время последнего приёма пищи (at) для проверки «перекус через час»."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT at FROM meals WHERE user_id = ? ORDER BY at DESC LIMIT 1",
+            (user_id,),
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        return datetime.fromisoformat(row["at"].replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+WATER_GOAL_ML = 2000
+
+
+def add_water(user_id: int, ml: int):
+    with get_conn() as conn:
+        conn.execute("INSERT INTO water (user_id, at, ml) VALUES (?, ?, ?)", (user_id, datetime.utcnow().isoformat(), ml))
+
+
+def get_water_today_ml(user_id: int) -> int:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(ml), 0) AS total FROM water WHERE user_id = ? AND date(at) = date('now')",
+            (user_id,),
+        ).fetchone()
+    return int(row["total"]) if row else 0
+
+
+def get_all_chat_ids() -> list[int]:
+    """Все chat_id для рассылки напоминаний."""
+    with get_conn() as conn:
+        rows = conn.execute("SELECT chat_id FROM users WHERE chat_id IS NOT NULL").fetchall()
+    return [r["chat_id"] for r in rows if r["chat_id"]]

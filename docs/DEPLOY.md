@@ -4,6 +4,22 @@
 
 ---
 
+## Как обновить бота на сервере (после push в GitHub)
+
+Подключись по SSH к серверу, зайди в папку с ботом, подтяни изменения и перезапусти сервис:
+
+```bash
+cd ~/bot
+git pull origin main
+source .venv/bin/activate
+pip install -r requirements.txt
+sudo systemctl restart murlok-bot
+```
+
+Путь `~/bot` замени на свой, если бот лежит в другой папке. Проверить, что бот запустился: `sudo systemctl status murlok-bot`. Логи: `sudo journalctl -u murlok-bot -f`.
+
+---
+
 ## 1. Что нужно заранее
 
 - **Сервер** с Linux (VPS: Timeweb, Selectel, Reg.ru, DigitalOcean, и т.п.). Достаточно 1 ядра, 512 MB RAM.
@@ -198,6 +214,7 @@ nano .env
 
 ```
 BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+8764774623:AAFr7epC8MODpeTiyn_Fznrt0_efKcTS_7w
 ```
 
 Сохрани: `Ctrl+O`, Enter, затем `Ctrl+X`.
@@ -240,7 +257,7 @@ python main.py
 
 В Telegram открой бота и нажми **Start**. Если бот отвечает — всё ок. Останови бота в терминале: `Ctrl+C`.
 
-Для продакшена в `config.py` должно быть `TEST_FAST_TIMERS = False` (таймеры в минутах, а не в секундах).
+Таймеры (сообщения во время еды, ожидание перекуса 10 мин) везде в минутах.
 
 ---
 

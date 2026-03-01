@@ -4,21 +4,25 @@ from telegram import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, 
 MAIN_KEYS = [
     [KeyboardButton("🍽 Собираюсь поесть")],
     [KeyboardButton("🍪 Хочу перекусить")],
+    [KeyboardButton("💧 Записать воду")],
     [KeyboardButton("📊 Мой прогресс")],
 ]
 MAIN_MARKUP = ReplyKeyboardMarkup(MAIN_KEYS, resize_keyboard=True)
 
-# Before meal checklist
-WATER_KEYS = [[KeyboardButton("✅ Выпила"), KeyboardButton("⏭ Потом")]]
-WATER_MARKUP = ReplyKeyboardMarkup(WATER_KEYS, resize_keyboard=True)
-
-HUNGER_KEYS = [
-    [KeyboardButton("1-3"), KeyboardButton("4-5"), KeyboardButton("6-7"), KeyboardButton("8-10")],
+# Сможешь подождать 10 минут? (перекус)
+SNACK_CAN_WAIT_KEYS = [
+    [KeyboardButton("✅ Да, подожду")],
+    [KeyboardButton("❌ Нет, не могу")],
 ]
-HUNGER_MARKUP = ReplyKeyboardMarkup(HUNGER_KEYS, resize_keyboard=True)
+SNACK_CAN_WAIT_MARKUP = ReplyKeyboardMarkup(SNACK_CAN_WAIT_KEYS, resize_keyboard=True)
 
-PLATE_KEYS = [[KeyboardButton("✅ Маленькая тарелка"), KeyboardButton("⏭ Обычная")]]
-PLATE_MARKUP = ReplyKeyboardMarkup(PLATE_KEYS, resize_keyboard=True)
+# Быстрый выбор объёма воды (мл)
+WATER_ML_KEYS = [
+    [KeyboardButton("200 мл"), KeyboardButton("250 мл"), KeyboardButton("500 мл")],
+    [KeyboardButton("1000 мл"), KeyboardButton("✏️ Свои мл")],
+    [KeyboardButton("◀️ В меню")],
+]
+WATER_ML_MARKUP = ReplyKeyboardMarkup(WATER_ML_KEYS, resize_keyboard=True)
 
 # Во время приёма пищи: закончила / отменить
 MEAL_FINISH_KEYS = [

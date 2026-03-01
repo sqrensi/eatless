@@ -1,5 +1,7 @@
 .env
+.env.test
 *.db
+bot_data_test.db
 __pycache__/
 *.pyc
 .venv/
