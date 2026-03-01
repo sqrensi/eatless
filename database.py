@@ -166,7 +166,7 @@ def _today_utc() -> str:
 def get_meals_today(user_id: int) -> list:
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT meal_type, at, stopped_at_80, calories, start_at, duration_seconds FROM meals WHERE user_id = ? AND date(at) = date('now') ORDER BY at",
+            "SELECT meal_type, at, stopped_at_80, calories, start_at, duration_seconds FROM meals WHERE user_id = ? AND date(at, 'localtime') = date('now', 'localtime') ORDER BY at",
             (user_id,),
         ).fetchall()
     return [dict(r) for r in rows]
@@ -176,7 +176,7 @@ def get_total_eating_time_today(user_id: int) -> int:
     """Сумма длительностей приёмов пищи за сегодня, в секундах."""
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT COALESCE(SUM(duration_seconds), 0) AS total FROM meals WHERE user_id = ? AND date(at) = date('now') AND duration_seconds IS NOT NULL",
+            "SELECT COALESCE(SUM(duration_seconds), 0) AS total FROM meals WHERE user_id = ? AND date(at, 'localtime') = date('now', 'localtime') AND duration_seconds IS NOT NULL",
             (user_id,),
         ).fetchone()
     return int(row["total"]) if row else 0
@@ -185,7 +185,7 @@ def get_total_eating_time_today(user_id: int) -> int:
 def get_calories_today(user_id: int) -> int:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT COALESCE(SUM(calories), 0) AS total FROM meals WHERE user_id = ? AND date(at) = date('now') AND calories IS NOT NULL",
+            "SELECT COALESCE(SUM(calories), 0) AS total FROM meals WHERE user_id = ? AND date(at, 'localtime') = date('now', 'localtime') AND calories IS NOT NULL",
             (user_id,),
         ).fetchone()
     return int(row["total"]) if row else 0
@@ -248,7 +248,7 @@ def _is_yesterday(d: str) -> bool:
 def get_impulses_waited_today(user_id: int) -> int:
     with get_conn() as conn:
         n = conn.execute(
-            "SELECT COUNT(*) FROM impulses WHERE user_id = ? AND waited_10_min = 1 AND date(at) = date('now')",
+            "SELECT COUNT(*) FROM impulses WHERE user_id = ? AND waited_10_min = 1 AND date(at, 'localtime') = date('now', 'localtime')",
             (user_id,),
         ).fetchone()[0]
     return n
@@ -280,7 +280,7 @@ def add_water(user_id: int, ml: int):
 def get_water_today_ml(user_id: int) -> int:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT COALESCE(SUM(ml), 0) AS total FROM water WHERE user_id = ? AND date(at) = date('now')",
+            "SELECT COALESCE(SUM(ml), 0) AS total FROM water WHERE user_id = ? AND date(at, 'localtime') = date('now', 'localtime')",
             (user_id,),
         ).fetchone()
     return int(row["total"]) if row else 0
