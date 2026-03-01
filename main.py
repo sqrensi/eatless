@@ -15,6 +15,7 @@ from config import BOT_TOKEN
 from database import init_db
 from handlers import (
     start,
+    backup,
     main_menu,
     meal_start,
     meal_checklist,
@@ -129,6 +130,7 @@ def main() -> None:
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", start))
+    app.add_handler(CommandHandler("backup", backup))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_router))
 
     logger.info("Bot starting...")

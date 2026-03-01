@@ -8,7 +8,7 @@ from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config import BOT_NAME, MEAL_PHOTOS_DIR
+from config import BOT_NAME, MEAL_PHOTOS_DIR, DB_PATH, BACKUP_USER_ID
 from database import (
     init_db,
     upsert_user,
@@ -586,3 +586,21 @@ async def water_reminder_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             await context.bot.send_message(chat_id, "💧 Попей воды!")
         except Exception:
             pass
+
+
+async def backup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /backup: отправить файл БД в чат (только если BACKUP_USER_ID в .env совпадает с user_id)."""
+    if not update.effective_user:
+        return
+    if BACKUP_USER_ID is None or update.effective_user.id != BACKUP_USER_ID:
+        await update.message.reply_text("Недоступно.")
+        return
+    if not DB_PATH.exists():
+        await update.message.reply_text("Файл БД не найден.")
+        return
+    try:
+        with open(DB_PATH, "rb") as f:
+            await update.message.reply_document(document=f, filename=DB_PATH.name)
+    except Exception as e:
+        logger.exception("backup send failed")
+        await update.message.reply_text(f"Ошибка: {e}")

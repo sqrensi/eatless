@@ -25,3 +25,7 @@ DB_PATH = Path(__file__).parent / ("bot_data_test.db" if _is_test else "bot_data
 
 # Папка с фото для сообщений во время еды (jpg, png, webp). Абсолютный путь, чтобы работало при любом cwd.
 MEAL_PHOTOS_DIR = _base.resolve() / "assets" / "meal_photos"
+
+# User ID, которому можно выгрузить бэкап БД командой /backup (в .env: BACKUP_USER_ID=123456789)
+_backup_id = os.getenv("BACKUP_USER_ID", "").strip()
+BACKUP_USER_ID = int(_backup_id) if _backup_id.isdigit() else None
