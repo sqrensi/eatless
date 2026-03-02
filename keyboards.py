@@ -9,12 +9,13 @@ MAIN_KEYS = [
 ]
 MAIN_MARKUP = ReplyKeyboardMarkup(MAIN_KEYS, resize_keyboard=True)
 
-# Сможешь подождать 10 минут? (перекус)
-SNACK_CAN_WAIT_KEYS = [
-    [KeyboardButton("✅ Да, подожду")],
-    [KeyboardButton("❌ Нет, не могу")],
+# Причина перекуса
+SNACK_REASON_KEYS = [
+    [KeyboardButton("🍽 Голод"), KeyboardButton("😐 Скука")],
+    [KeyboardButton("😤 Стресс"), KeyboardButton("🔄 Привычка")],
+    [KeyboardButton("✏️ Другое")],
 ]
-SNACK_CAN_WAIT_MARKUP = ReplyKeyboardMarkup(SNACK_CAN_WAIT_KEYS, resize_keyboard=True)
+SNACK_REASON_MARKUP = ReplyKeyboardMarkup(SNACK_REASON_KEYS, resize_keyboard=True)
 
 # Быстрый выбор объёма воды (мл)
 WATER_ML_KEYS = [
@@ -52,6 +53,21 @@ MEAL_TYPE_MAIN_KEYS = [
     [KeyboardButton("🌙 Ужин")],
 ]
 MEAL_TYPE_MAIN_MARKUP = ReplyKeyboardMarkup(MEAL_TYPE_MAIN_KEYS, resize_keyboard=True)
+
+# Оценка голода (диапазоны 1–10)
+HUNGER_KEYS = [
+    [KeyboardButton("1–2"), KeyboardButton("3–5")],
+    [KeyboardButton("6–7"), KeyboardButton("8–10")],
+    [KeyboardButton("◀️ В меню")],
+]
+HUNGER_MARKUP = ReplyKeyboardMarkup(HUNGER_KEYS, resize_keyboard=True)
+
+# После выбора типа: только ккал или поесть с секундомером
+MEAL_MODE_KEYS = [
+    [KeyboardButton("📝 Только записать ккал")],
+    [KeyboardButton("⏱ Поесть с секундомером")],
+]
+MEAL_MODE_MARKUP = ReplyKeyboardMarkup(MEAL_MODE_KEYS, resize_keyboard=True)
 
 # После «Да, хочется» — записать перекус
 RECORD_SNACK_KEYS = [

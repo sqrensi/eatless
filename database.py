@@ -50,7 +50,9 @@ def init_db():
                 stopped_at_80 INTEGER DEFAULT 0,
                 calories INTEGER,
                 start_at TEXT,
-                duration_seconds INTEGER
+                duration_seconds INTEGER,
+                hunger INTEGER,
+                snack_reason TEXT
             );
             CREATE TABLE IF NOT EXISTS impulses (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,6 +69,12 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_meals_user_at ON meals(user_id, at);
             CREATE INDEX IF NOT EXISTS idx_impulses_user_at ON impulses(user_id, at);
+            CREATE TABLE IF NOT EXISTS cat_goal_sent (
+                user_id INTEGER NOT NULL,
+                date TEXT NOT NULL,
+                sent_type TEXT NOT NULL,
+                PRIMARY KEY (user_id, date, sent_type)
+            );
         """)
         # Миграция: добавить колонки в существующие БД (игнорируем, если уже есть)
         for sql in [
@@ -75,6 +83,8 @@ def init_db():
             "ALTER TABLE meals ADD COLUMN start_at TEXT",
             "ALTER TABLE meals ADD COLUMN duration_seconds INTEGER",
             "ALTER TABLE users ADD COLUMN chat_id INTEGER",
+            "ALTER TABLE meals ADD COLUMN hunger INTEGER",
+            "ALTER TABLE meals ADD COLUMN snack_reason TEXT",
         ]:
             try:
                 conn.execute(sql)
@@ -135,10 +145,12 @@ def add_meal(
     calories: int | None = None,
     start_at: str | None = None,
     duration_seconds: int | None = None,
+    hunger: int | None = None,
+    snack_reason: str | None = None,
 ):
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO meals (user_id, meal_type, at, stopped_at_80, calories, start_at, duration_seconds) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO meals (user_id, meal_type, at, stopped_at_80, calories, start_at, duration_seconds, hunger, snack_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 user_id,
                 meal_type,
@@ -147,6 +159,8 @@ def add_meal(
                 calories,
                 start_at,
                 duration_seconds,
+                hunger,
+                snack_reason,
             ),
         )
 
@@ -166,17 +180,17 @@ def _today_utc() -> str:
 def get_meals_today(user_id: int) -> list:
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT meal_type, at, stopped_at_80, calories, start_at, duration_seconds FROM meals WHERE user_id = ? AND date(at, 'localtime') = date('now', 'localtime') ORDER BY at",
+            "SELECT meal_type, at, stopped_at_80, calories, start_at, duration_seconds, hunger, snack_reason FROM meals WHERE user_id = ? AND date(at, 'localtime') = date('now', 'localtime') ORDER BY at",
             (user_id,),
         ).fetchall()
     return [dict(r) for r in rows]
 
 
 def get_all_meals(user_id: int) -> list:
-    """Все приёмы пищи и перекусы пользователя (для отчёта)."""
+    """Все приёмы пищи и перекусы пользователя (для отчёта). day = дата по локальному времени сервера."""
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT meal_type, at, stopped_at_80, calories, start_at, duration_seconds FROM meals WHERE user_id = ? ORDER BY at",
+            "SELECT meal_type, at, stopped_at_80, calories, start_at, duration_seconds, hunger, snack_reason, date(at, 'localtime') AS day FROM meals WHERE user_id = ? ORDER BY at",
             (user_id,),
         ).fetchall()
     return [dict(r) for r in rows]
@@ -296,8 +310,67 @@ def get_water_today_ml(user_id: int) -> int:
     return int(row["total"]) if row else 0
 
 
+def get_calories_for_date(user_id: int, date_str: str) -> int:
+    """Сумма ккалорий за дату (date_str = YYYY-MM-DD по локальному времени)."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(calories), 0) AS total FROM meals WHERE user_id = ? AND date(at, 'localtime') = ? AND calories IS NOT NULL",
+            (user_id, date_str),
+        ).fetchone()
+    return int(row["total"]) if row else 0
+
+
+def get_water_for_date(user_id: int, date_str: str) -> int:
+    """Сумма воды (мл) за дату (date_str = YYYY-MM-DD по локальному времени)."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(ml), 0) AS total FROM water WHERE user_id = ? AND date(at, 'localtime') = ?",
+            (user_id, date_str),
+        ).fetchone()
+    return int(row["total"]) if row else 0
+
+
 def get_all_chat_ids() -> list[int]:
     """Все chat_id для рассылки напоминаний."""
     with get_conn() as conn:
         rows = conn.execute("SELECT chat_id FROM users WHERE chat_id IS NOT NULL").fetchall()
     return [r["chat_id"] for r in rows if r["chat_id"]]
+
+
+def get_users_with_chat_id() -> list[tuple[int, int]]:
+    """(user_id, chat_id) для пользователей с chat_id (напр. для умных напоминаний о воде)."""
+    with get_conn() as conn:
+        rows = conn.execute("SELECT user_id, chat_id FROM users WHERE chat_id IS NOT NULL").fetchall()
+    return [(r["user_id"], r["chat_id"]) for r in rows if r["chat_id"]]
+
+
+def get_cat_sent_today(user_id: int) -> set[str]:
+    """Типы отправленных за сегодня сообщений «цель/кот»: 'goal', 'boundary_0' … 'boundary_4'."""
+    today = date.today().isoformat()
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT sent_type FROM cat_goal_sent WHERE user_id = ? AND date = ?",
+            (user_id, today),
+        ).fetchall()
+    return {r["sent_type"] for r in rows}
+
+
+def mark_cat_sent(user_id: int, sent_type: str) -> None:
+    """Отметить, что пользователю отправлено сообщение цели/кота за сегодня."""
+    today = date.today().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO cat_goal_sent (user_id, date, sent_type) VALUES (?, ?, ?)",
+            (user_id, today, sent_type),
+        )
+
+
+def get_days_overfed_count(user_id: int) -> int:
+    """Число дней, когда сумма ккалорий за день превысила лимит пользователя (раскормили кота). Лимит — текущий."""
+    limit = get_settings(user_id).get("daily_calorie_limit", 1700)
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT date(at, 'localtime') AS day, SUM(calories) AS total FROM meals WHERE user_id = ? AND calories IS NOT NULL GROUP BY date(at, 'localtime')",
+            (user_id,),
+        ).fetchall()
+    return sum(1 for r in rows if (r["total"] or 0) > limit)

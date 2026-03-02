@@ -20,23 +20,21 @@ from handlers import (
     main_menu,
     meal_start,
     meal_checklist,
+    meal_hunger_input,
+    meal_choose_mode,
     meal_finish,
     meal_cancel,
     meal_log_calories_input,
-    record_snack_ask_calories,
     snack_start,
-    snack_can_wait_answer,
-    snack_after,
+    snack_reason_input,
     water_start,
     water_ml_input,
     progress,
-    reminder_job,
     water_reminder_job,
     is_back_to_menu,
     _maybe_meal_80_response,
     USER_STATE,
     USER_AWAITING_80,
-    USER_AWAITING_SNACK,
     USER_IN_MEAL,
 )
 
@@ -61,10 +59,6 @@ async def message_router(update: Update, context) -> None:
         if await _maybe_meal_80_response(update, context):
             return
 
-    if user_id in USER_AWAITING_SNACK:
-        await snack_after(update, context)
-        return
-
     if user_id in USER_IN_MEAL:
         if "Закончила приём пищи" in text:
             await meal_finish(update, context)
@@ -79,13 +73,8 @@ async def message_router(update: Update, context) -> None:
     if state == "log_meal_calories":
         await meal_log_calories_input(update, context)
         return
-    if state == "snack_will_log":
-        if "Записать перекус" in text:
-            await record_snack_ask_calories(update, context)
-            return
-        return
-    if state == "snack_can_wait":
-        await snack_can_wait_answer(update, context)
+    if state == "snack_reason":
+        await snack_reason_input(update, context)
         return
     if state == "water_ml":
         await water_ml_input(update, context)
@@ -93,6 +82,12 @@ async def message_router(update: Update, context) -> None:
 
     if state == "meal_choose_type":
         await meal_checklist(update, context)
+        return
+    if state == "meal_hunger":
+        await meal_hunger_input(update, context)
+        return
+    if state == "meal_choose_mode":
+        await meal_choose_mode(update, context)
         return
 
     if text == "🍽 Собираюсь поесть":
@@ -119,15 +114,24 @@ def main() -> None:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
     init_db()
-    app = Application.builder().token(BOT_TOKEN).build()
+    # Пул соединений и таймауты: чтобы send_photo не ждал в очереди за getUpdates (иначе кот может идти 50+ сек).
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .connection_pool_size(8)
+        .pool_timeout(30.0)
+        .read_timeout(30)
+        .write_timeout(30)
+        .media_write_timeout(60)
+        .build()
+    )
 
     if app.job_queue:
-        # «Ты сейчас не ешь?» — чаще в течение дня
-        for hour in (10, 12, 15, 18, 20):
-            app.job_queue.run_daily(reminder_job, time=dt_time(hour=hour, minute=0))
-        # «Попей воды»
-        for hour in (9, 11, 14, 17, 19):
-            app.job_queue.run_daily(water_reminder_job, time=dt_time(hour=hour, minute=0))
+        # Вода: 10, 14, 18, 22 (интервал 4 ч). Напоминаем только если выпито меньше порога за день.
+        app.job_queue.run_daily(water_reminder_job, time=dt_time(hour=10, minute=0), data={"threshold": 0})
+        app.job_queue.run_daily(water_reminder_job, time=dt_time(hour=14, minute=0), data={"threshold": 400})
+        app.job_queue.run_daily(water_reminder_job, time=dt_time(hour=18, minute=0), data={"threshold": 800})
+        app.job_queue.run_daily(water_reminder_job, time=dt_time(hour=22, minute=0), data={"threshold": 1200})
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", start))
